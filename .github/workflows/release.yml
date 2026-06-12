@@ -1,0 +1,42 @@
+# File: .github/workflows/release.yml
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build-and-release:
+    name: Build & Publish Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Build WASM
+        run: wasm-pack build --target web --out-dir pkg
+
+      - name: Package artifacts
+        run: |
+          mkdir release
+          cp -r pkg release/
+          cp index.html release/
+          cd release
+          zip -r ../substrate-evolver-web.zip .
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: substrate-evolver-web.zip
+          draft: true
+          generate_release_notes: true
