@@ -4,13 +4,10 @@ pub mod substrate;
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rand_distr::StandardNormal;
 use std::f32::consts::PI;
 use crate::config::Config;
 use crate::agent::Agent;
 use crate::agent::genetics::AgentGenome;
-use crate::core::environment;
-use crate::core::substrate;
 
 pub struct Simulation {
     pub config: Config,
