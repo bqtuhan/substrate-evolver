@@ -1,3 +1,4 @@
+# File: Cargo.toml
 [package]
 name = "substrate-evolver"
 version = "0.2.0"
@@ -13,3 +14,9 @@ rand = "0.8"
 rand_distr = "0.4"
 wasm-bindgen = "0.2"
 js-sys = "0.3"
+
+# The `getrandom` crate is a dependency of `rand` and must be configured
+# with the "js" feature for the `wasm32-unknown-unknown` target.
+# Adding it here ensures it's compiled correctly during `wasm-pack build`.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
