@@ -1,0 +1,238 @@
+<!-- File: index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Substrate Evolver – WebAssembly ALife</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      background:#0f0f1a;
+      color:#e0e0e0;
+      font-family:monospace;
+      display:flex;
+      height:100vh;
+      overflow:hidden;
+    }
+    #canvas-container {
+      flex:1;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      min-width:0;
+    }
+    canvas {
+      image-rendering:pixelated;
+      border:1px solid #333;
+      max-width:100%;
+      max-height:100%;
+    }
+    #sidebar {
+      width:280px;
+      background:#1a1a2e;
+      display:flex;
+      flex-direction:column;
+      padding:8px;
+      gap:4px;
+      overflow-y:auto;
+    }
+    .stat { font-size:13px; margin:2px 0; }
+    button {
+      background:#16213e;
+      color:#e0e0e0;
+      border:1px solid #333;
+      padding:10px;
+      font-size:13px;
+      cursor:pointer;
+      border-radius:4px;
+      touch-action:manipulation;
+    }
+    button:active {
+      background:#533483;
+    }
+    #log {
+      flex:1;
+      background:#0b0c10;
+      padding:6px;
+      font-size:11px;
+      white-space:pre-wrap;
+      overflow-y:auto;
+      margin-top:6px;
+      border:1px solid #333;
+    }
+    .speed-indicator {
+      font-size:12px;
+      margin-top:4px;
+    }
+  </style>
+</head>
+<body>
+  <div id="canvas-container">
+    <canvas id="simCanvas"></canvas>
+  </div>
+  <div id="sidebar">
+    <strong>Genotype Inspector</strong>
+    <div class="stat">Speed: <span id="speedVal">-</span></div>
+    <div class="stat">Vision: <span id="visionVal">-</span></div>
+    <div class="stat">Repro: <span id="reproVal">-</span></div>
+    <div class="stat">Population: <span id="popVal">0</span></div>
+    <div class="stat">Food: <span id="foodVal">0</span></div>
+    <div class="stat">Tick: <span id="tickVal">0</span></div>
+    <div class="speed-indicator">Speed: <span id="speedInd">1x</span></div>
+    <button id="playPause">Pause</button>
+    <button id="speedUp">Warp +</button>
+    <button id="slowDown">Slow -</button>
+    <button id="spawnFood">Spawn Chaos Food</button>
+    <button id="iceAge">Trigger Ice Age</button>
+    <div id="log">Events will appear here...</div>
+  </div>
+
+  <script type="module">
+    // Import the WASM bindings AND the raw WebAssembly instance object
+    import init, { WasmSimulation, wasm } from './pkg/substrate_evolver.js';
+
+    async function run() {
+      // Wait for the WASM module to be fully initialised
+      await init();
+      const sim = new WasmSimulation();
+      let paused = false;
+      let speed = 1; // ticks per frame
+      const MAX_SPEED = 20;
+
+      // ---- Canvas setup ----
+      const canvas = document.getElementById('simCanvas');
+      const ctx = canvas.getContext('2d');
+      const gridW = sim.grid_width();
+      const gridH = sim.grid_height();
+
+      function computeCellSize() {
+        const maxWidth = window.innerWidth * 0.75;
+        const maxHeight = window.innerHeight * 0.95;
+        return Math.min(maxWidth / gridW, maxHeight / gridH) | 0;
+      }
+      let cellSize = computeCellSize();
+      canvas.width = gridW * cellSize;
+      canvas.height = gridH * cellSize;
+
+      window.addEventListener('resize', () => {
+        cellSize = computeCellSize();
+        canvas.width = gridW * cellSize;
+        canvas.height = gridH * cellSize;
+      });
+
+      // ---- Draw ----
+      function draw() {
+        // Dynamically fetch the WASM linear memory buffer on every frame.
+        // This avoids stale references after memory growth.
+        const memoryBuffer = wasm.memory.buffer;
+        const gridPtr = sim.grid_ptr();
+        const gridLen = sim.grid_len();
+        const grid = new Uint8Array(memoryBuffer, gridPtr, gridLen);
+
+        const agentsPtr = sim.agents_ptr();
+        const agentsLen = sim.agents_len();
+        const agentsData = new Float32Array(memoryBuffer, agentsPtr, agentsLen);
+
+        ctx.fillStyle = '#0a0a1a';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        const cW = cellSize;
+        const cH = cellSize;
+
+        // Draw food tiles
+        for (let y = 0; y < gridH; y++) {
+          for (let x = 0; x < gridW; x++) {
+            const idx = y * gridW + x;
+            const food = grid[idx];
+            if (food > 0) {
+              const intensity = 50 + food * 40;
+              ctx.fillStyle = `rgb(0,${intensity},0)`;
+              ctx.fillRect(x * cW, y * cH, cW, cH);
+            }
+          }
+        }
+
+        // Draw agents
+        const numAgents = agentsLen / 10;
+        for (let i = 0; i < numAgents; i++) {
+          const base = i * 10;
+          const ax = agentsData[base];
+          const ay = agentsData[base + 1];
+          const r = agentsData[base + 2] * 255;
+          const g = agentsData[base + 3] * 255;
+          const b = agentsData[base + 4] * 255;
+
+          ctx.fillStyle = `rgb(${r},${g},${b})`;
+          ctx.beginPath();
+          ctx.arc(
+            ax * cW + cW / 2,
+            ay * cH + cH / 2,
+            Math.min(cW, cH) * 0.4,
+            0, 2 * Math.PI
+          );
+          ctx.fill();
+        }
+
+        // Update UI stats
+        const stats = sim.get_stats();
+        document.getElementById('tickVal').textContent = stats.tick;
+        document.getElementById('popVal').textContent = stats.agents;
+        document.getElementById('foodVal').textContent = stats.food;
+        document.getElementById('speedVal').textContent = stats.avgSpeed.toFixed(2);
+        document.getElementById('visionVal').textContent = stats.avgVision.toFixed(2);
+        document.getElementById('reproVal').textContent = stats.avgRepro.toFixed(2);
+        document.getElementById('speedInd').textContent = speed + 'x';
+      }
+
+      function updateLog() {
+        const log = sim.get_log();
+        document.getElementById('log').textContent = log || "No events yet.";
+      }
+
+      // ---- Main loop ----
+      function mainLoop() {
+        if (!paused) {
+          for (let i = 0; i < speed; i++) {
+            sim.tick();
+          }
+        }
+        draw();
+        updateLog();
+        requestAnimationFrame(mainLoop);
+      }
+
+      // ---- Controls ----
+      document.getElementById('playPause').addEventListener('click', () => {
+        paused = !paused;
+        document.getElementById('playPause').textContent = paused ? 'Play' : 'Pause';
+      });
+      document.getElementById('speedUp').addEventListener('click', () => {
+        speed = Math.min(speed + 1, MAX_SPEED);
+        document.getElementById('speedInd').textContent = speed + 'x';
+      });
+      document.getElementById('slowDown').addEventListener('click', () => {
+        speed = Math.max(1, speed - 1);
+        document.getElementById('speedInd').textContent = speed + 'x';
+      });
+      document.getElementById('spawnFood').addEventListener('click', () => {
+        sim.spawn_chaos_food();
+        draw(); // immediate visual feedback
+      });
+      document.getElementById('iceAge').addEventListener('click', () => {
+        sim.trigger_ice_age();
+      });
+
+      // Initial draw and start loop
+      draw();
+      updateLog();
+      requestAnimationFrame(mainLoop);
+    }
+
+    run().catch(err => {
+      document.getElementById('log').textContent = 'Error initializing WASM: ' + err.message;
+      console.error(err);
+    });
+  </script>
+</body>
+</html>
